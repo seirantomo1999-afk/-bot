@@ -40,4 +40,4 @@ jobs:
       - name: Run notifier
         env:
           GITHUB_ACTIONS: "true"   # ヘッドレス切り替え用
-        run: python gmail_send.py
+        run: python gmail.py
