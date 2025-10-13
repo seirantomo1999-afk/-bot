@@ -34,8 +34,8 @@ PURPOSE_VALUE = "1000_1030"   # テニス（人工芝）
 PARK_KEYWORDS = ["東白", "汐入", "舎人", "亀戸中央", "大島小松川", "東綾瀬"]
 
 # フィルタ（どちらか片方だけ True にする想定）
-ONLY_HOLIDAYS  = True   # ★休日（祝日含む）のみ表示
-ONLY_WEEKDAYS  = False  # 平日のみ（祝日除く）表示
+ONLY_HOLIDAYS  = False   # ★休日（祝日含む）のみ表示
+ONLY_WEEKDAYS  = True  # 平日のみ（祝日除く）表示
 
 NEXT_WEEKS_TO_CHECK = 5  # 今週＋8週＝計9週
 TIMEOUT_SEC = 20
