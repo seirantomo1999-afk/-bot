@@ -4,8 +4,8 @@ on:
   workflow_dispatch: {}     # 手動実行（テストに便利）
   schedule:
     # GitHub Actions は UTC で動作。JST 7:00–24:00 は UTC 22:00–15:00
-    - cron: "*/15 22-23 * * *"   # JST 7:00–8:45
-    - cron: "*/15 0-15 * * *"    # JST 9:00–24:00
+    - cron: "*/30 22-23 * * *"   # JST 7:00–8:45
+    - cron: "*/30 0-15 * * *"    # JST 9:00–24:00
 
 jobs:
   run:
