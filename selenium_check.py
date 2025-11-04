@@ -46,7 +46,7 @@ PARK_KEYWORDS = ["東白", "汐入", "東綾瀬" ,"舎人", "亀戸中央", "大
 
 ONLY_HOLIDAYS = True
 NEXT_WEEKS_TO_CHECK = 4      # 今週 + 3週
-MAX_TOTAL_RUNTIME_SEC = 180  # 念のため全体ガード（超えたら打ち切り）
+MAX_TOTAL_RUNTIME_SEC = 300  # 念のため全体ガード（超えたら打ち切り）
 JITTER_RANGE = (0.12, 0.35)  # 微小ランダム待機（人間っぽさ）
 
 URL = "https://kouen.sports.metro.tokyo.lg.jp/web/"
