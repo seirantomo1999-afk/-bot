@@ -89,7 +89,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # 空きあり → 通知送信
-    subject = "【自動通知】都立公園 平日空き状況"
+    subject = "【自動通知】都立コート 休日空き状況"
     to = "seirantomo1999@gmail.com"
     msg = create_message(to=to, subject=subject, body_text=body or "(本文なし)")
     resp = send_message(service, "me", msg)
