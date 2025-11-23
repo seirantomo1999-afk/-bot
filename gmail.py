@@ -8,6 +8,10 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request  # refresh用
+import datetime, re
+def get_weekday_jp(date_str: str) -> str:
+    dt = datetime.datetime.strptime(date_str, "%Y%m%d")
+    return "月火水木金土日"[dt.weekday()]
 
 # Gmail送信スコープ
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
@@ -47,31 +51,38 @@ if __name__ == "__main__":
         capture_output=True, text=True, timeout=900
     )
     raw_out = (result.stdout or "").splitlines()
+        # === 必要な空き行だけ抽出 & 整形 ===
+    park_pattern = re.compile(r"^>>> \[(.+?)\]")     # 公園名
+    slot_pattern = re.compile(r"^(\d{8})\s+(.*)$")   # YYYYMMDD 19時 に空きがあります。
+    
+    lines = []
+    current_park = None
+    
+    for ln in raw_out:
+        # 公園名検出
+        m_park = park_pattern.match(ln)
+        if m_park:
+            current_park = m_park.group(1)
+            continue
+
+        # 空き行検出
+        if "に空きがあります" in ln:
+            m_slot = slot_pattern.match(ln.strip())
+            if m_slot:
+                date_str = m_slot.group(1)
+                rest    = m_slot.group(2)
+                w = get_weekday_jp(date_str)
+                lines.append(f"{current_park} {date_str}({w}) {rest}")  # ← 全角スペース4つ
+
+    # 本文に変換（空行なし）
+    body = "\n".join(lines).strip()
+    
     raw_err = (result.stderr or "").strip()
 
-    # --- ② 「該当なし」行とその1つ上の行も除外 ---
-    DROP_KEYWORDS = ("該当なし", "空きなし", "A_で始まるセルは見つかりません")
+    # 空きが1件でもあれば True
+    has_hit = bool(lines)
 
-    filtered = []
-    skip_prev = False  # 前行を削除フラグ
-    for i, ln in enumerate(raw_out):
-        if any(k in ln for k in DROP_KEYWORDS):
-            # 直前の1行を削除（残っていれば）
-            if filtered:
-                filtered.pop()
-            skip_prev = True
-            continue
-        if skip_prev:
-            # 該当なしの直後の空行などもスキップ
-            skip_prev = False
-            if ln.strip() == "":
-                continue
-        filtered.append(ln)
-
-    body = "\n".join(filtered).strip()
-
-    # --- ① 全部が「該当なし」なら送信しない ---
-    has_hit = any("に空きがあります" in ln for ln in filtered)
+    raw_err = (result.stderr or "").strip()
 
     # スクレイパ異常終了時はエラーメールに切り替え（任意）
     if result.returncode != 0:
