@@ -8,7 +8,8 @@
 - DEBUG: Timeout時に current_url / title / html を保存してログに出す
 
 使い方:
-- gmail.py から import されて run_for_park(..., on_hit=...) が呼ばれる想定
+- 単体実行: python selenium_check.py （空きが見つかったら即Gmail通知）
+- gmail.py から subprocess 実行される想定
 """
 
 import os
@@ -29,6 +30,9 @@ from selenium.common.exceptions import TimeoutException
 with suppress(Exception):
     import undetected_chromedriver as uc
 
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
+
 # 祝日（任意）
 try:
     import jpholiday
@@ -37,8 +41,7 @@ except Exception:
 
 # ====== 設定 ======
 SHOW_BROWSER = False
-# Actions(ubuntu)では uc が不安定になりがちなのでOFF
-USE_UC_FIRST = (os.environ.get("GITHUB_ACTIONS") != "true")
+USE_UC_FIRST = True
 CHROME_PROFILE_DIR = None
 CHROME_PROFILE_NAME = None
 
@@ -46,7 +49,7 @@ TARGET_DAY = (dt.date.today() + dt.timedelta(days=1)).strftime("%Y-%m-%d")
 PURPOSE_VALUE = "1000_1030"   # テニス（人工芝）
 PARK_KEYWORDS = ["東白鬚公園", "汐入公園", "東綾瀬公園" ,"舎人公園", "亀戸中央公園", "大島小松川公園"]
 
-ONLY_HOLIDAYS = False
+ONLY_HOLIDAYS = True
 NEXT_WEEKS_TO_CHECK = 4
 MAX_TOTAL_RUNTIME_SEC = 300
 JITTER_RANGE = (0.12, 0.35)
@@ -254,8 +257,8 @@ def dump_debug(driver, tag="debug"):
             f.write(html)
         print(f"[{tag}] saved html -> {path} (len={len(html)})")
 
-        # ★ここが修正点
-        head = html[:400].replace("\n", " ")
+        # ★ここだけ修正（SyntaxError回避）
+        head = (html[:400] or "").replace("\n", " ")
         print(f"[{tag}] html head: {head}")
 
     except Exception as e:
@@ -271,11 +274,6 @@ def build_options(headless: bool):
     opts.add_argument(f"--user-agent={USER_AGENT}")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
-        # GitHub Actions(ubuntu)でのクラッシュ対策
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--disable-gpu")
-
 
     prefs = {
         "intl.accept_languages": ACCEPT_LANG_PREF,
@@ -297,10 +295,6 @@ def build_options(headless: bool):
 
 def make_driver():
     headless = not SHOW_BROWSER
-
-    # Actions環境なら uc を使わない（既に入れてる想定）
-    # USE_UC_FIRST = (os.environ.get("GITHUB_ACTIONS") != "true")
-
     if USE_UC_FIRST:
         try:
             opts = build_options(headless)
@@ -310,12 +304,10 @@ def make_driver():
         except Exception:
             print("undetected-chromedriver 失敗 → 通常Seleniumにフォールバック")
 
-    # ★ webdriver-manager をやめて Selenium Manager に任せる
     opts = build_options(headless)
-    driver = webdriver.Chrome(options=opts)
+    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=opts)
     add_basic_stealth(driver)
     return driver
-
 
 def run_for_park(driver, wait, park_keyword: str, start_ts: float, on_hit=None):
     print(f"\n>>> [{park_keyword}] 開始")
@@ -330,17 +322,14 @@ def run_for_park(driver, wait, park_keyword: str, start_ts: float, on_hit=None):
         driver.get(URL)
         big_jitter()
 
-    # A: 初期化完了待ち
     if not wait_for_session_ready(driver, wait):
         print("   初期化が揃わず → リロード")
         driver.refresh()
         wait_for_session_ready(driver, wait)
 
-    # E: エラーページ救済
     if reload_once_if_error(driver, wait):
         wait_for_session_ready(driver, wait)
 
-    # ここで day/purpose/park が出ないときに debug してから落とす
     try:
         wait.until(EC.presence_of_element_located((By.XPATH, X_DAY)))
     except TimeoutException:
@@ -394,7 +383,6 @@ def run_for_park(driver, wait, park_keyword: str, start_ts: float, on_hit=None):
 
         print(f"   週{wk} 取得: {rng} / 件数 {len(slots)}")
 
-        # ★★★★★ ここが今回の目的：見つけた瞬間に通知 ★★★★★
         if slots and on_hit:
             for d, ymd, hour in slots:
                 on_hit(park_keyword, ymd, d, hour)
@@ -407,3 +395,83 @@ def run_for_park(driver, wait, park_keyword: str, start_ts: float, on_hit=None):
                 old = tbody
                 human_click(driver, next_btn)
                 WebDriverWait(driver, 12).until(EC.staleness_of(old))
+
+
+# =========================
+# ここから下だけ「追加」：即時Gmail通知 + 単体実行(main)
+# =========================
+
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from google.auth.transport.requests import Request as GoogleRequest
+
+# 通知先（必要ならここだけ変える）
+GMAIL_TO = "seirantomo1999@gmail.com"
+GMAIL_SUBJECT = "【自動通知】都立コート 空き状況"
+
+# Gmail送信スコープ
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+
+def gmail_get_service():
+    creds = Credentials.from_authorized_user_file("token.json", GMAIL_SCOPES)
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+            with open("token.json", "w") as f:
+                f.write(creds.to_json())
+        else:
+            raise RuntimeError("token.json が無効で refresh もできません（refresh_token 必須）")
+    return build("gmail", "v1", credentials=creds)
+
+def gmail_send_text(service, to: str, subject: str, body_text: str):
+    msg = MIMEMultipart()
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+def get_weekday_jp(ymd: str) -> str:
+    d = dt.datetime.strptime(ymd, "%Y%m%d").date()
+    return "月火水木金土日"[d.weekday()]
+
+def main():
+    print("[INFO] selenium_check.py started")
+
+    service = gmail_get_service()
+    executor = ThreadPoolExecutor(max_workers=2)
+    seen = set()
+
+    start_ts = time.time()
+    driver = make_driver()
+    wait = WebDriverWait(driver, 20)
+
+    try:
+        def on_hit(park: str, ymd: str, d: dt.date, hour: str):
+            # 同一実行中の重複通知防止
+            key = f"{park}_{ymd}_{hour}"
+            if key in seen:
+                return
+            seen.add(key)
+
+            w = get_weekday_jp(ymd)
+            body = f"{park} {ymd}({w}) {hour} に空きがあります。"
+            executor.submit(gmail_send_text, service, GMAIL_TO, GMAIL_SUBJECT, body)
+
+        for kw in PARK_KEYWORDS:
+            run_for_park(driver, wait, kw, start_ts, on_hit=on_hit)
+
+        print("[INFO] selenium_check.py finished normally")
+
+    finally:
+        executor.shutdown(wait=True)
+        with suppress(Exception):
+            driver.quit()
+
+if __name__ == "__main__":
+    main()
