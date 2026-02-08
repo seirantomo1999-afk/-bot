@@ -249,15 +249,17 @@ def dump_debug(driver, tag="debug"):
     print(f"[{tag}] current_url={url}")
     print(f"[{tag}] title={title}")
 
-    # HTMLを保存（Actionsのログだと長いのでファイルへ）
     try:
         html = driver.page_source or ""
         path = f"page_{tag}.html"
         with open(path, "w", encoding="utf-8") as f:
             f.write(html)
         print(f"[{tag}] saved html -> {path} (len={len(html)})")
-        # 先頭だけログにも出す
-        print(f"[{tag}] html head: {html[:400].replace('\\n',' ')}")
+
+        # ★ここが修正点
+        head = html[:400].replace("\n", " ")
+        print(f"[{tag}] html head: {head}")
+
     except Exception as e:
         print(f"[{tag}] failed to save html: {e}")
 
