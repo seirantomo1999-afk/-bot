@@ -49,7 +49,7 @@ TARGET_DAY = (dt.date.today() + dt.timedelta(days=1)).strftime("%Y-%m-%d")
 PURPOSE_VALUE = "1000_1030"   # テニス（人工芝）
 PARK_KEYWORDS = ["東白鬚公園", "汐入公園", "東綾瀬公園" ,"舎人公園", "亀戸中央公園", "大島小松川公園"]
 
-ONLY_HOLIDAYS = False
+ONLY_HOLIDAYS = True
 NEXT_WEEKS_TO_CHECK = 4
 MAX_TOTAL_RUNTIME_SEC = 300
 JITTER_RANGE = (0.12, 0.35)
