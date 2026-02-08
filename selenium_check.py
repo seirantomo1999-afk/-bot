@@ -29,9 +29,6 @@ from selenium.common.exceptions import TimeoutException
 with suppress(Exception):
     import undetected_chromedriver as uc
 
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service as ChromeService
-
 # 祝日（任意）
 try:
     import jpholiday
@@ -300,6 +297,10 @@ def build_options(headless: bool):
 
 def make_driver():
     headless = not SHOW_BROWSER
+
+    # Actions環境なら uc を使わない（既に入れてる想定）
+    # USE_UC_FIRST = (os.environ.get("GITHUB_ACTIONS") != "true")
+
     if USE_UC_FIRST:
         try:
             opts = build_options(headless)
@@ -309,10 +310,12 @@ def make_driver():
         except Exception:
             print("undetected-chromedriver 失敗 → 通常Seleniumにフォールバック")
 
+    # ★ webdriver-manager をやめて Selenium Manager に任せる
     opts = build_options(headless)
-    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=opts)
+    driver = webdriver.Chrome(options=opts)
     add_basic_stealth(driver)
     return driver
+
 
 def run_for_park(driver, wait, park_keyword: str, start_ts: float, on_hit=None):
     print(f"\n>>> [{park_keyword}] 開始")
