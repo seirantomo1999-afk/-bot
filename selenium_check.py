@@ -40,7 +40,8 @@ except Exception:
 
 # ====== 設定 ======
 SHOW_BROWSER = False
-USE_UC_FIRST = True
+# Actions(ubuntu)では uc が不安定になりがちなのでOFF
+USE_UC_FIRST = (os.environ.get("GITHUB_ACTIONS") != "true")
 CHROME_PROFILE_DIR = None
 CHROME_PROFILE_NAME = None
 
@@ -273,6 +274,11 @@ def build_options(headless: bool):
     opts.add_argument(f"--user-agent={USER_AGENT}")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
+        # GitHub Actions(ubuntu)でのクラッシュ対策
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+
 
     prefs = {
         "intl.accept_languages": ACCEPT_LANG_PREF,
