@@ -1,18 +1,31 @@
 name: park_notifier
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      source:
+        type: choice
+        options: [manual, cloudflare]
+        default: manual
+        description: 起動元
   schedule:
-    # JST 07:00〜24:00（UTC 22:00〜15:59）を30分間隔
+    # UTC。日本時間07:00〜翌00:30。切替後はjob条件でスキップ
     - cron: "0,30 22-23,0-15 * * *"
 
-# 1) ドリフト対策：最新だけ実行（並走はキャンセル）
+permissions:
+  contents: read
+
+# 取得・通知の途中で既存実行をキャンセルしない
 concurrency:
   group: park_notifier
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run:
+    if: >-
+      (github.event_name == 'schedule' && vars.SCHEDULER_MODE != 'cloudflare') ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.source != 'cloudflare' || vars.SCHEDULER_MODE == 'cloudflare'))
     runs-on: ubuntu-latest
     # 2) もし詰まってもここで強制終了（例：10分）
     timeout-minutes: 10
@@ -48,6 +61,7 @@ jobs:
           echo "Runner time (UTC): $(date -u +'%F %T')"
           echo "Runner time (local): $(date +'%F %T %Z')"
           echo "Triggered by: ${{ github.event_name }}"
+          echo "Source: ${{ inputs.source }}"
 
       - name: Run notifier
         env:

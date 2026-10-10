@@ -1,0 +1,9 @@
+# Google認証JSON（絶対にコミットしない）
+credentials.json
+token.json
+
+# Cloudflare / Node
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars*
