@@ -177,33 +177,40 @@ test("worker source does not carry booking controls", () => {
   assert.equal(/async fetch\s*\(/.test(source), false);
 });
 
-function shouldRun({ event, source, mode }) {
+function shouldRun({ event, source, mode, wait = "0", gateSkip = false }) {
+  if (gateSkip) return false;
   return (event === "schedule" && mode !== "cloudflare") ||
-    (event === "workflow_dispatch" && (source !== "cloudflare" || mode === "cloudflare"));
+    (event === "workflow_dispatch" && source === "manual") ||
+    (event === "workflow_dispatch" && source === "cloudflare" && mode === "cloudflare") ||
+    (event === "workflow_dispatch" && source === "relay" && wait === "0" && mode !== "cloudflare");
 }
 
 test("workflow conditions match the scheduler mode table", () => {
   const workflow = readFileSync(workflowPath, "utf8");
   assert.match(workflow, /name: park_notifier/);
-  assert.match(workflow, /options: \[manual, cloudflare\]/);
+  assert.match(workflow, /options: \[manual, cloudflare, relay\]/);
   assert.match(workflow, /cron: "0,30 22-23,0-15 \* \* \*"/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /python gmail\.py/);
   assert.equal(workflow.includes("dry_run"), false);
   assert.match(workflow, /github\.event_name == 'schedule' && vars\.SCHEDULER_MODE != 'cloudflare'/);
-  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(workflow, /inputs\.source != 'cloudflare' \|\| vars\.SCHEDULER_MODE == 'cloudflare'/);
+  assert.match(workflow, /inputs\.source == 'cloudflare' && vars\.SCHEDULER_MODE == 'cloudflare'/);
+  assert.match(workflow, /inputs\.source == 'relay' && inputs\.wait_seconds == '0'/);
 
   const cases = [
     { event: "schedule", source: "", mode: "", run: true },
     { event: "schedule", source: "", mode: "github", run: true },
     { event: "schedule", source: "", mode: "cloudflare", run: false },
+    { event: "schedule", source: "", mode: "", gateSkip: true, run: false },
     { event: "workflow_dispatch", source: "cloudflare", mode: "", run: false },
     { event: "workflow_dispatch", source: "cloudflare", mode: "github", run: false },
     { event: "workflow_dispatch", source: "cloudflare", mode: "cloudflare", run: true },
     { event: "workflow_dispatch", source: "manual", mode: "", run: true },
     { event: "workflow_dispatch", source: "manual", mode: "github", run: true },
     { event: "workflow_dispatch", source: "manual", mode: "cloudflare", run: true },
+    { event: "workflow_dispatch", source: "relay", mode: "", wait: "0", run: true },
+    { event: "workflow_dispatch", source: "relay", mode: "github", wait: "1710", run: false },
+    { event: "workflow_dispatch", source: "relay", mode: "cloudflare", wait: "0", run: false },
   ];
   for (const item of cases) {
     assert.equal(shouldRun(item), item.run, JSON.stringify(item));
