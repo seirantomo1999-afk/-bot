@@ -2,6 +2,10 @@
 credentials.json
 token.json
 
+# Python
+__pycache__/
+*.pyc
+
 # Cloudflare / Node
 node_modules/
 .wrangler/
