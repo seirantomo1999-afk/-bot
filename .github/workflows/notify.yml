@@ -5,31 +5,68 @@ on:
     inputs:
       source:
         type: choice
-        options: [manual, cloudflare]
+        options: [manual, cloudflare, relay]
         default: manual
         description: 起動元
+      wait_seconds:
+        type: string
+        default: "0"
+        description: relayが次の実行まで待つ秒数
   schedule:
-    # UTC。日本時間07:00〜翌00:30。切替後はjob条件でスキップ
+    # GitHubのscheduleは30分枠の多くを遅延・破棄する。
+    # ここでのcronは最初の起動と、relayが切れたときの再開用。
+    # 30分間隔そのものはrelayが日本時間の毎時0分と30分へつなぐ。
+    # Cloudflareへ切替後はSCHEDULER_MODEによりscheduleとrelayを止める。
     - cron: "0,30 22-23,0-15 * * *"
 
 permissions:
   contents: read
+  actions: write
 
-# 取得・通知の途中で既存実行をキャンセルしない
-concurrency:
-  group: park_notifier
-  cancel-in-progress: false
+run-name: ${{ github.event_name == 'schedule' && 'schedule' || github.event.inputs.source || github.event_name }}
 
 jobs:
+  gate:
+    if: github.event_name == 'schedule' && vars.SCHEDULER_MODE != 'cloudflare'
+    concurrency:
+      group: park_notifier_gate
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Skip while a 30-minute relay is active
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python3 park_schedule.py gate
+
   run:
+    needs: gate
     if: >-
-      (github.event_name == 'schedule' && vars.SCHEDULER_MODE != 'cloudflare') ||
-      (github.event_name == 'workflow_dispatch' &&
-       (inputs.source != 'cloudflare' || vars.SCHEDULER_MODE == 'cloudflare'))
+      !cancelled() &&
+      (needs.gate.result == 'success' || needs.gate.result == 'skipped') &&
+      needs.gate.outputs.skip != 'true' &&
+      (
+        (github.event_name == 'schedule' && vars.SCHEDULER_MODE != 'cloudflare') ||
+        (github.event_name == 'workflow_dispatch' && inputs.source == 'manual') ||
+        (github.event_name == 'workflow_dispatch' &&
+         inputs.source == 'cloudflare' && vars.SCHEDULER_MODE == 'cloudflare') ||
+        (github.event_name == 'workflow_dispatch' &&
+         inputs.source == 'relay' && inputs.wait_seconds == '0' &&
+         vars.SCHEDULER_MODE != 'cloudflare')
+      )
+    concurrency:
+      group: park_notifier
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     # 2) もし詰まってもここで強制終了（例：10分）
     timeout-minutes: 10
-
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -67,3 +104,44 @@ jobs:
         env:
           GITHUB_ACTIONS: "true"
         run: python gmail.py
+
+      - name: Schedule next run
+        if: always() && !cancelled() && (github.event_name == 'schedule' || inputs.source == 'relay')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          SCHEDULER_MODE: ${{ vars.SCHEDULER_MODE }}
+          AFTER_SCAN: "true"
+        run: python3 park_schedule.py dispatch
+
+  bridge:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.source == 'relay' &&
+      inputs.wait_seconds != '0' &&
+      inputs.wait_seconds != '' &&
+      vars.SCHEDULER_MODE != 'cloudflare'
+    concurrency:
+      group: park_notifier_bridge
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Wait until the next slot
+        env:
+          WAIT_SECONDS: ${{ inputs.wait_seconds }}
+          PYTHONUNBUFFERED: "1"
+        run: python3 park_schedule.py sleep
+      - name: Dispatch next run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          SCHEDULER_MODE: ${{ vars.SCHEDULER_MODE }}
+          PYTHONUNBUFFERED: "1"
+        run: python3 park_schedule.py dispatch
