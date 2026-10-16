@@ -10,6 +10,7 @@
 使い方:
 - 単体実行: python selenium_check.py （空きが見つかったら即Gmail通知）
 - gmail.py から subprocess 実行される想定
+- 19時枠は検知するが通知しない（ほぼ予約できないため）
 """
 
 import os
@@ -72,6 +73,8 @@ X_WEEK_TBODY = '//*[@id="week-info"]/tbody'
 X_NEXT_WEEK  = '//*[@id="next-week"]'
 
 SLOT_LABELS = {"10": "9時", "20": "11時", "30": "13時", "40": "15時", "50": "17時", "60": "19時"}
+# 19時（枠コード60）は空きでもほぼ取れないため、検知してもメールしない。
+SKIP_NOTIFY_SLOT_CODES = frozenset({"60"})
 ID_RE  = re.compile(r"A_(\d{8})_(\d{2})")
 YMD_RE = re.compile(r"(\d{8})_(10|20|30|40|50|60)")
 
@@ -92,6 +95,10 @@ def big_jitter():
 
 def slot_to_hour(code: str) -> str:
     return SLOT_LABELS.get(code, f"slot:{code}")
+
+def should_notify_hour(hour: str) -> bool:
+    skipped = {SLOT_LABELS[code] for code in SKIP_NOTIFY_SLOT_CODES}
+    return hour not in skipped
 
 def is_holiday_or_weekend(d: dt.date) -> bool:
     if d.weekday() >= 5:
@@ -385,6 +392,9 @@ def run_for_park(driver, wait, park_keyword: str, start_ts: float, on_hit=None):
 
         if slots and on_hit:
             for d, ymd, hour in slots:
+                if not should_notify_hour(hour):
+                    print(f"   通知対象外: {park_keyword} {ymd} {hour}")
+                    continue
                 on_hit(park_keyword, ymd, d, hour)
 
         human_scroll(driver, px=random.randint(200, 600))
@@ -453,6 +463,8 @@ def main():
 
     try:
         def on_hit(park: str, ymd: str, d: dt.date, hour: str):
+            if not should_notify_hour(hour):
+                return
             # 同一実行中の重複通知防止
             key = f"{park}_{ymd}_{hour}"
             if key in seen:
